@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zombie Apocalypse</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0a0a0a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+            border: 3px solid #ff0000;
+            box-shadow: 0 0 30px rgba(255, 0, 0, 0.5), inset 0 0 50px rgba(0, 0, 0, 0.8);
+        }
+        #gameCanvas {
+            display: block;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        }
+        #ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: #00ff41;
+            text-shadow: 0 0 10px #00ff41, 0 0 20px #00ff41;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 10;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            padding: 40px 60px;
+            border: 3px solid #ff0000;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 0 50px rgba(255, 0, 0, 0.8);
+        }
+        #gameOver h1 {
+            color: #ff0000;
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px #ff0000;
+        }
+        #gameOver p {
+            color: #00ff41;
+            font-size: 24px;
+            margin: 10px 0;
+        }
+        #gameOver button {
+            margin-top: 20px;
+            padding: 15px 40px;
+            font-size: 20px;
+            background: #ff0000;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            transition: all 0.3s;
+        }
+        #gameOver button:hover {
+            background: #cc0000;
+            box-shadow: 0 0 20px #ff0000;
+        }
+        .instruction {
+            position: absolute;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #00ff41;
+            font-size: 14px;
+            text-shadow: 0 0 5px #00ff41;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="1200" height="800"></canvas>
+        <div id="ui">
+            <div>ROUND: <span id="round">1</span></div>
+            <div>HEALTH: <span id="health">100</span></div>
+            <div>ZOMBIES: <span id="zombiesLeft">0</span></div>
+            <div>SCORE: <span id="score">0</span></div>
+            <div>BLASTER: <span id="blasterLevel">1</span></div>
+        </div>
+        <div class="instruction">WASD/Arrows: Move • SPACE: Shoot Forward • H: Health • S: Speed • P: Power</div>
+        <div id="gameOver">
+            <h1>GAME OVER</h1>
+            <p>AI Dominance System Overload</p>
+            <p>Final Round: <span id="finalRound"></span></p>
+            <p>Final Score: <span id="finalScore"></span></p>
+            <button onclick="restartGame()">RESTART</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let player = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            size: 15,
+            speed: 4,
+            health: 100,
+            maxHealth: 100,
+            invulnerable: 0,
+            blasterLevel: 1,
+            blasterCooldown: 0,
+            angle: 0  // Direction player is facing
+        };
+        
+        let keys = {};
+        let zombies = [];
+        let bullets = [];
+        let powerUps = [];
+        let round = 1;
+        let score = 0;
+        let totalZombies = 0;
+        let zombiesKilled = 0;
+        let gameRunning = true;
+        let particles = [];
+        
+        // Background grid
+        function drawGrid() {
+            ctx.strokeStyle = 'rgba(0, 255, 65, 0.1)';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += 50) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += 50) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+        }
+        
+        // Particle system
+        function createParticles(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x, y,
+                    vx: (Math.random() - 0.5) * 6,
+                    vy: (Math.random() - 0.5) * 6,
+                    life: 1,
+                    color
+                });
+            }
+        }
+        
+        function updateParticles() {
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.02;
+                p.vy += 0.1;
+            });
+        }
+        
+        function drawParticles() {
+            particles.forEach(p => {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 4, 4);
+                ctx.globalAlpha = 1;
+            });
+        }
+        
+        // Spawn zombies for current round
+        function spawnRound() {
+            zombies = [];
+            powerUps = [];
+            zombiesKilled = 0;
+            
+            // Start with 6, double each round up to a max
+            let numZombies;
+            if (round === 1) numZombies = 6;
+            else if (round === 2) numZombies = 12;
+            else if (round === 3) numZombies = 24;
+            else if (round === 4) numZombies = 30;
+            else numZombies = 30; // Cap at 30
+            
+            totalZombies = numZombies;
+            
+            const zombieSpeed = 0.8 + Math.min(round, 8) * 0.12;
+            const zombieHealth = 1 + Math.floor(Math.min(round, 8) / 3);
+            
+            for (let i = 0; i < numZombies; i++) {
+                setTimeout(() => {
+                    if (!gameRunning) return;
+                    
+                    let x, y;
+                    const side = Math.floor(Math.random() * 4);
+                    
+                    switch(side) {
+                        case 0: x = Math.random() * canvas.width; y = -30; break;
+                        case 1: x = canvas.width + 30; y = Math.random() * canvas.height; break;
+                        case 2: x = Math.random() * canvas.width; y = canvas.height + 30; break;
+                        case 3: x = -30; y = Math.random() * canvas.height; break;
+                    }
+                    
+                    zombies.push({
+                        x, y,
+                        size: 14,
+                        speed: zombieSpeed,
+                        health: zombieHealth,
+                        maxHealth: zombieHealth
+                    });
+                }, i * 500);
+            }
+            
+            // Spawn power-ups
+            const numPowerUps = 3 + Math.floor(Math.min(round, 8) / 2);
+            for (let i = 0; i < numPowerUps; i++) {
+                spawnPowerUp();
+            }
+        }
+        
+        function spawnPowerUp() {
+            const types = ['health', 'speed', 'power'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            powerUps.push({
+                x: Math.random() * (canvas.width - 100) + 50,
+                y: Math.random() * (canvas.height - 100) + 50,
+                size: 12,
+                type,
+                pulse: 0
+            });
+        }
+        
+        // Shooting in direction player is facing
+        function shoot() {
+            if (player.blasterCooldown > 0) return;
+            
+            const cooldowns = [20, 16, 12, 10, 8];
+            player.blasterCooldown = cooldowns[Math.min(player.blasterLevel - 1, cooldowns.length - 1)];
+            
+            const numBullets = Math.min(player.blasterLevel, 3);
+            const spreadAngle = 0.2;
+            
+            for (let i = 0; i < numBullets; i++) {
+                const bulletAngle = player.angle + (i - (numBullets - 1) / 2) * spreadAngle;
+                bullets.push({
+                    x: player.x,
+                    y: player.y,
+                    vx: Math.cos(bulletAngle) * 12,
+                    vy: Math.sin(bulletAngle) * 12,
+                    size: 4,
+                    damage: player.blasterLevel
+                });
+            }
+            
+            createParticles(player.x, player.y, '#00ffff', 5);
+        }
+        
+        // Draw player
+        function drawPlayer() {
+            if (player.invulnerable > 0 && Math.floor(Date.now() / 100) % 2 === 0) return;
+            
+            ctx.fillStyle = '#00ff41';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#00ff41';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // Direction indicator
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y);
+            ctx.lineTo(
+                player.x + Math.cos(player.angle) * player.size * 2,
+                player.y + Math.sin(player.angle) * player.size * 2
+            );
+            ctx.stroke();
+            
+            // Health bar above player
+            ctx.fillStyle = '#333';
+            ctx.fillRect(player.x - 20, player.y - 28, 40, 5);
+            ctx.fillStyle = player.health > 30 ? '#00ff41' : '#ff0000';
+            ctx.fillRect(player.x - 20, player.y - 28, 40 * (player.health / player.maxHealth), 5);
+        }
+        
+        // Draw zombies
+        function drawZombies() {
+            zombies.forEach(z => {
+                ctx.fillStyle = '#ff0000';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#ff0000';
+                ctx.beginPath();
+                ctx.arc(z.x, z.y, z.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                
+                // Zombie eyes
+                ctx.fillStyle = '#ffff00';
+                ctx.beginPath();
+                ctx.arc(z.x - 5, z.y - 3, 2, 0, Math.PI * 2);
+                ctx.arc(z.x + 5, z.y - 3, 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Health bar
+                if (z.health < z.maxHealth) {
+                    ctx.fillStyle = '#333';
+                    ctx.fillRect(z.x - 15, z.y - 20, 30, 3);
+                    ctx.fillStyle = '#ff0000';
+                    ctx.fillRect(z.x - 15, z.y - 20, 30 * (z.health / z.maxHealth), 3);
+                }
+            });
+        }
+        
+        // Draw bullets
+        function drawBullets() {
+            bullets.forEach(b => {
+                ctx.fillStyle = '#00ffff';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#00ffff';
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            });
+        }
+        
+        // Draw power-ups
+        function drawPowerUps() {
+            powerUps.forEach(p => {
+                p.pulse += 0.1;
+                const size = p.size + Math.sin(p.pulse) * 3;
+                
+                let color;
+                switch(p.type) {
+                    case 'health': color = '#00ff00'; break;
+                    case 'speed': color = '#ffaa00'; break;
+                    case 'power': color = '#ff00ff'; break;
+                }
+                
+                ctx.fillStyle = color;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = color;
+                ctx.fillRect(p.x - size/2, p.y - size/2, size, size);
+                ctx.shadowBlur = 0;
+                
+                // Icon
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(p.type[0].toUpperCase(), p.x, p.y);
+            });
+        }
+        
+        // Update game state
+        function update() {
+            if (!gameRunning) return;
+            
+            // Move player and update direction
+            let dx = 0, dy = 0;
+            if (keys['w'] || keys['ArrowUp']) dy -= player.speed;
+            if (keys['s'] || keys['ArrowDown']) dy += player.speed;
+            if (keys['a'] || keys['ArrowLeft']) dx -= player.speed;
+            if (keys['d'] || keys['ArrowRight']) dx += player.speed;
+            
+            // Update player angle based on movement
+            if (dx !== 0 || dy !== 0) {
+                player.angle = Math.atan2(dy, dx);
+                
+                // Normalize diagonal movement
+                dx *= 0.707;
+                dy *= 0.707;
+            }
+            
+            player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x + dx));
+            player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y + dy));
+            
+            // Update cooldowns
+            if (player.invulnerable > 0) player.invulnerable--;
+            if (player.blasterCooldown > 0) player.blasterCooldown--;
+            
+            // Shooting
+            if (keys[' ']) {
+                shoot();
+            }
+            
+            // Move zombies toward player
+            zombies.forEach(z => {
+                const angle = Math.atan2(player.y - z.y, player.x - z.x);
+                z.x += Math.cos(angle) * z.speed;
+                z.y += Math.sin(angle) * z.speed;
+            });
+            
+            // Move bullets
+            bullets.forEach(b => {
+                b.x += b.vx;
+                b.y += b.vy;
+            });
+            
+            // Remove off-screen bullets
+            bullets = bullets.filter(b => 
+                b.x > -10 && b.x < canvas.width + 10 && b.y > -10 && b.y < canvas.height + 10
+            );
+            
+            // Check bullet-zombie collisions
+            for (let bi = bullets.length - 1; bi >= 0; bi--) {
+                const b = bullets[bi];
+                let bulletHit = false;
+                
+                for (let zi = zombies.length - 1; zi >= 0; zi--) {
+                    const z = zombies[zi];
+                    const dist = Math.hypot(b.x - z.x, b.y - z.y);
+                    
+                    if (dist < b.size + z.size) {
+                        z.health -= b.damage;
+                        bulletHit = true;
+                        createParticles(z.x, z.y, '#ff0000', 8);
+                        
+                        if (z.health <= 0) {
+                            zombies.splice(zi, 1);
+                            zombiesKilled++;
+                            score += 10 * round;
+                            createParticles(z.x, z.y, '#ff0000', 20);
+                        }
+                        break;
+                    }
+                }
+                
+                if (bulletHit) {
+                    bullets.splice(bi, 1);
+                }
+            }
+            
+            // Check zombie collisions
+            if (player.invulnerable === 0) {
+                zombies.forEach(z => {
+                    const dist = Math.hypot(player.x - z.x, player.y - z.y);
+                    if (dist < player.size + z.size) {
+                        player.health -= 15;
+                        player.invulnerable = 60;
+                        createParticles(player.x, player.y, '#ff0000', 15);
+                        
+                        if (player.health <= 0) {
+                            gameOver();
+                        }
+                    }
+                });
+            }
+            
+            // Check power-up collisions
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                const p = powerUps[i];
+                const dist = Math.hypot(player.x - p.x, player.y - p.y);
+                
+                if (dist < player.size + p.size) {
+                    switch(p.type) {
+                        case 'health':
+                            player.health = Math.min(player.maxHealth, player.health + 40);
+                            break;
+                        case 'speed':
+                            player.speed = Math.min(7, player.speed + 0.5);
+                            break;
+                        case 'power':
+                            player.blasterLevel = Math.min(5, player.blasterLevel + 1);
+                            break;
+                    }
+                    score += 50;
+                    createParticles(p.x, p.y, '#ffff00', 20);
+                    powerUps.splice(i, 1);
+                }
+            }
+            
+            // Check if round complete
+            if (zombiesKilled >= totalZombies && zombies.length === 0 && gameRunning) {
+                round++;
+                score += round * 200;
+                player.health = Math.min(player.maxHealth, player.health + 20);
+                setTimeout(() => {
+                    if (gameRunning) spawnRound();
+                }, 2000);
+            }
+            
+            updateParticles();
+            updateUI();
+        }
+        
+        // Draw everything
+        function draw() {
+            ctx.fillStyle = 'rgba(10, 10, 20, 0.25)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            drawGrid();
+            drawParticles();
+            drawPowerUps();
+            drawBullets();
+            drawZombies();
+            drawPlayer();
+        }
+        
+        // Game loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function updateUI() {
+            document.getElementById('round').textContent = round;
+            document.getElementById('health').textContent = Math.max(0, player.health);
+            document.getElementById('zombiesLeft').textContent = zombies.length;
+            document.getElementById('score').textContent = score;
+            document.getElementById('blasterLevel').textContent = player.blasterLevel;
+        }
+        
+        function gameOver() {
+            gameRunning = false;
+            document.getElementById('finalRound').textContent = round;
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+        
+        function restartGame() {
+            player = {
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                size: 15,
+                speed: 4,
+                health: 100,
+                maxHealth: 100,
+                invulnerable: 0,
+                blasterLevel: 1,
+                blasterCooldown: 0,
+                angle: 0
+            };
+            zombies = [];
+            bullets = [];
+            powerUps = [];
+            particles = [];
+            round = 1;
+            score = 0;
+            zombiesKilled = 0;
+            totalZombies = 0;
+            gameRunning = true;
+            document.getElementById('gameOver').style.display = 'none';
+            spawnRound();
+        }
+        
+        // Event listeners
+        document.addEventListener('keydown', e => {
+            keys[e.key] = true;
+            if (e.key === ' ') e.preventDefault();
+        });
+        document.addEventListener('keyup', e => keys[e.key] = false);
+        
+        // Start game
+        spawnRound();
+        gameLoop();
+    </script>
+</body>
+</html>
